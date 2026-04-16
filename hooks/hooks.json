@@ -1,0 +1,29 @@
+{
+  "description": "Encoding guard hooks - preserve non-UTF-8 file encodings when Claude Code edits",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Read|Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --script \"${CLAUDE_PLUGIN_ROOT}/hooks/encoding_guard.py\" pre",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --script \"${CLAUDE_PLUGIN_ROOT}/hooks/encoding_guard.py\" post",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}

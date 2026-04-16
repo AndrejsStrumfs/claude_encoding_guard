@@ -1,0 +1,8 @@
+{
+  "name": "encoding-guard",
+  "description": "Preserve non-UTF-8 file encodings (GBK, Big5, Shift_JIS, etc.) when Claude Code edits your files.",
+  "author": {
+    "name": "ymonster",
+    "email": "ymonster.thefool@gmail.com"
+  }
+}

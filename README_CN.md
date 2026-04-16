@@ -1,0 +1,92 @@
+# claude_encoding_guard
+
+Claude Code 编辑文件时，自动保留非 UTF-8 编码和行尾符。
+
+[English](README.md)
+
+## 问题
+
+Claude Code 的 Edit/Write 工具始终输出 UTF-8 + LF 行尾。编辑 GBK、Big5、Shift_JIS 等编码的文件时，原始编码会被静默破坏；Windows 上 CRLF 行尾也会丢失。官方回应是 ["not planned"](https://github.com/anthropics/claude-code/issues/12203)。
+
+相关 issue：[#6485](https://github.com/anthropics/claude-code/issues/6485)、[#7134](https://github.com/anthropics/claude-code/issues/7134)、[#28523](https://github.com/anthropics/claude-code/issues/28523)、[#38887](https://github.com/anthropics/claude-code/issues/38887)。
+
+## 工作原理
+
+```
+PreToolUse (Read)                       PostToolUse (Edit/Write)
+    │                                        │
+    ├─ 二进制检测 (binaryornot)               ├─ 读取缓存的编码 + 行尾风格
+    ├─ 检测编码 (chardet 5.x)                ├─ UTF-8 → 原始编码
+    ├─ 检测行尾 (CRLF/LF)                   ├─ 恢复行尾符
+    ├─ 原始编码 → UTF-8                      ├─ 删除会话缓存
+    ├─ 保存会话缓存                           └─ 完成
+    └─ Claude 读到正确内容
+```
+
+编码转换发生在 **Read 阶段**，在 Claude Code 将文件加载到内存之前。这是关键——Claude Code 会把非 UTF-8 字节当作 UTF-8 解释，无效序列变成 U+FFFD（不可逆）。先转成 UTF-8，Claude 就能看到正确内容并正常编辑。
+
+## 功能
+
+- **编码保护**：GBK、GB2312、GB18030、Big5、Big5-HKSCS、EUC-TW、Shift_JIS、EUC-JP、ISO-2022-JP、EUC-KR、Windows-1252、ISO-8859-1
+- **行尾保护**：Claude Code 将 CRLF 转为 LF 后自动恢复
+- **二进制文件防护**：防止 chardet 误判二进制文件导致数据损坏（始终开启，不可关闭）
+- **会话隔离**：多个 Claude Code 会话互不干扰
+- **零配置**：安装即用
+
+## 安装
+
+### 前置要求
+
+- [uv](https://docs.astral.sh/uv/) — 必需。通过 PEP 723 inline metadata 自动管理 Python 依赖，无需手动 `pip install`。
+
+### 作为 Plugin 安装
+
+```
+/plugin marketplace add ymonster/claude_encoding_guard
+/plugin install encoding-guard
+```
+
+### 验证
+
+安装后，Read 任意非 UTF-8 文件——中文应正确显示而非乱码。
+
+## 设计决策
+
+- **Read 阶段转换**：Claude Code v2.1.90+ 对 hook 修改的文件不重新读取内容。Edit 阶段转换会导致 U+FFFD 覆盖。Read 阶段转换确保 Claude 第一次看到的就是正确 UTF-8。
+- **`uv run --script`**：普通 `uv run` 触发项目 sync 会关闭 Windows 上的 stdin 管道。`--script` 跳过项目发现。
+- **chardet 5.x**：7.x 对 CJK 检测置信度从 0.99 降到 0.40——低于安全阈值。通过 PEP 723 锁定在隔离环境中。
+- **二进制检测**：chardet 将某些二进制误判为 Windows-1252（0.73 置信度）。[binaryornot](https://github.com/binaryornot/binaryornot) 过滤。始终开启，不可关闭。
+- **编码别名**：GB2312 → GBK（字节兼容超集），ISO-8859-1 → Windows-1252（行业惯例）。
+- **会话隔离缓存**：`<tmpdir>/.cc_encoding_cache/<session_id>/`——不跨会话干扰。24 小时自动清理残留。
+
+## 已知限制
+
+- **Read 后不 Edit，文件留在 UTF-8。** Read 非 UTF-8 文件但不编辑时，文件在磁盘上保持 UTF-8 直到缓存过期（24 小时）。Git 会显示编码变化。新会话的 Read 会看到 UTF-8 并跳过。
+
+- **Windows-1252 stale cache 边界情况。** 如果缓存删除失败（如杀毒软件锁定）且文件原始 Windows-1252 字节恰好是合法 UTF-8，残留缓存无法自愈。此情况需要两个极端条件同时满足，不影响 CJK 编码（GBK/Big5/Shift_JIS 字节不是合法 UTF-8）。
+
+- **混合行尾。** 同时包含 CRLF 和 LF 的文件会恢复为主要风格。
+
+- **依赖绝对路径。** 本插件依赖 Claude Code 在 hook stdin JSON 中提供绝对路径（已验证的实际行为）。符号链接或 junction 指向同一文件可能产生不同的缓存键。
+
+## 高级配置
+
+通过 `if` 字段限制 hook 仅对特定扩展名生效（Claude Code v2.1.85+），在项目的 `.claude/settings.local.json` 中配置：
+
+```json
+{
+  "matcher": "Read|Edit|Write",
+  "if": "tool_input.file_path MATCHES '\\.(?:h|c|cpp|txt|xml|csv|ini)$'",
+  "hooks": [...]
+}
+```
+
+不配置 `if` 时，hook 对所有文件操作生效。性能开销很小——chardet 对 UTF-8/ASCII 文件几乎立即跳过。
+
+## 技术细节
+
+参见 [TECHNICAL.md](TECHNICAL.md)，包括平台差异（Windows stdin、codepage、CRLF）、chardet 版本敏感性、二进制检测原理、缓存设计，以及转换策略的演进过程。
+
+## License
+
+MIT

@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+.claude/
+
+# test data & internal docs
+datacolect.h
+Big5.txt
+windows_hook.md
+tech.md
+linux_test.md
+_backup/
+hooks/stdin_test.py
+review_decisions.md
