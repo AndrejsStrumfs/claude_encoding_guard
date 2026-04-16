@@ -1,3 +1,19 @@
 {
-  "plugins": ["encoding-guard"]
+  "name": "claude-encoding-guard",
+  "owner": {
+    "name": "ymonster",
+    "email": "ymonster.thefool@gmail.com"
+  },
+  "metadata": {
+    "description": "Preserve non-UTF-8 file encodings and line endings when Claude Code edits files"
+  },
+  "plugins": [
+    {
+      "name": "encoding-guard",
+      "source": "./",
+      "description": "Preserve non-UTF-8 file encodings (GBK, Big5, Shift_JIS, etc.) and CRLF line endings when Claude Code edits your files.",
+      "category": "file-management",
+      "tags": ["encoding", "charset", "gbk", "big5", "shift-jis", "crlf", "cjk"]
+    }
+  ]
 }
