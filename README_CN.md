@@ -61,13 +61,13 @@ PreToolUse (Read)                       PostToolUse (Edit/Write)
 
 ## 已知限制
 
-- **Read 后不 Edit，文件留在 UTF-8。** Read 非 UTF-8 文件但不编辑时，文件在磁盘上保持 UTF-8 直到缓存过期（24 小时）。Git 会显示编码变化。新会话的 Read 会看到 UTF-8 并跳过。
-
 - **Windows-1252 stale cache 边界情况。** 如果缓存删除失败（如杀毒软件锁定）且文件原始 Windows-1252 字节恰好是合法 UTF-8，残留缓存无法自愈。此情况需要两个极端条件同时满足，不影响 CJK 编码（GBK/Big5/Shift_JIS 字节不是合法 UTF-8）。
 
 - **混合行尾。** 同时包含 CRLF 和 LF 的文件会恢复为主要风格。
 
 - **依赖绝对路径。** 本插件依赖 Claude Code 在 hook stdin JSON 中提供绝对路径（已验证的实际行为）。符号链接或 junction 指向同一文件可能产生不同的缓存键。
+
+- **多个 Claude Code 实例同时操作同一文件。** 两个 CC 实例并发编辑/读取同一文件时，一个会话 Stop 触发的恢复可能覆盖另一会话尚未完成的 Edit。会话隔离缓存阻止了大部分交叉污染，但仍有一个极窄的竞态窗口。并发使用极少见，这个 trade-off 被接受以换取 Read-without-Edit 的恢复能力。
 
 ## 高级配置
 
@@ -86,6 +86,10 @@ PreToolUse (Read)                       PostToolUse (Edit/Write)
 ## 技术细节
 
 参见 [TECHNICAL.md](TECHNICAL.md)，包括平台差异（Windows stdin、codepage、CRLF）、chardet 版本敏感性、二进制检测原理、缓存设计，以及转换策略的演进过程。
+
+## 致谢
+
+感谢 [@lbresler](https://github.com/lbresler) 贡献的 [#1](https://github.com/ymonster/claude_encoding_guard/pull/1)（修复 ISO-8859-1 / GB2312 的 alias-dash 不匹配问题）和 [#2](https://github.com/ymonster/claude_encoding_guard/pull/2)（`handle_restore_all` + Stop hook 恢复 Read-without-Edit 场景）。
 
 ## License
 
