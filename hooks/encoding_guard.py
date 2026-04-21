@@ -344,30 +344,39 @@ def handle_restore_all(hook_json: dict | None):
         if not name.endswith(".json"):
             continue
         cp = os.path.join(sd, name)
+        # Read just enough to recover the path; load_cache does the full validation.
         try:
             with open(cp, "r") as f:
-                cached = json.load(f)
+                raw = json.load(f)
         except (json.JSONDecodeError, OSError) as e:
             _log(f"failed to read {cp}: {e}")
             with contextlib.suppress(OSError):
                 os.unlink(cp)
             continue
-        path = cached.get("path")
-        orig_enc = cached.get("encoding")
-        orig_eol = cached.get("line_ending", "lf")
-        if not path or not orig_enc:
+        path = raw.get("path") if isinstance(raw, dict) else None
+        if not isinstance(path, str) or not path:
             with contextlib.suppress(OSError):
                 os.unlink(cp)
+            continue
+        cached = load_cache(session_id, path)
+        if cached is None:
+            # load_cache already removed the corrupt entry
             continue
         if not os.path.isfile(path):
-            with contextlib.suppress(OSError):
-                os.unlink(cp)
+            delete_cache(session_id, path)
             continue
+        orig_enc = cached["encoding"]
+        orig_eol = cached["line_ending"]
         if convert_file(path, "utf-8", orig_enc, target_eol=orig_eol):
             delete_cache(session_id, path)
             _log(f"[{session_id[:8]}] stop-restored {path} utf-8→{orig_enc} eol={orig_eol}")
         else:
             _log(f"[{session_id[:8]}] stop-restore FAILED for {path}, cache preserved")
+    # Remove session dir if every entry was cleaned up via os.unlink
+    # (delete_cache paths already handle this, but orphan paths above don't).
+    with contextlib.suppress(OSError):
+        if os.path.isdir(sd) and not os.listdir(sd):
+            os.rmdir(sd)
 
 
 def main():

@@ -112,6 +112,12 @@ The `permissionDecision: "deny"` mechanism was tried to force Claude to re-Read 
 
 Converting at Read time ensures Claude's first in-memory view is already correct UTF-8. The Pre hook matcher includes `Read|Edit|Write` for Pre (convert before any file access) and `Edit|Write` for Post (restore after modification).
 
+### Stop Hook: Read-Without-Edit Recovery
+
+Post only fires after Edit/Write. If Claude reads a file but never edits it in that turn, the file is left in UTF-8 form and the cache entry is never consumed. To recover, a `Stop` hook runs `encoding_guard.py restore-all` at the end of every Claude turn: it enumerates the session cache directory (Stop stdin has no `tool_input.file_path`) and restores each still-cached file through the same `convert_file` helper that `handle_post` uses. Cache validation goes through `load_cache` so the Stop path applies the same `_RESTORE_SET` / `line_ending` / type checks as Post.
+
+**Accepted trade-off — multi-session race.** When two CC instances operate on the same file, the restore triggered by one session's Stop can overwrite a pending Edit in another session. Session-isolated caches prevent most cross-contamination, but a narrow race window remains. Concurrent CC use is rare enough that this trade-off is accepted in exchange for Read-without-Edit recovery in the common single-session case.
+
 ## Atomic File Writes
 
 All file writes use `atomic_write()`:

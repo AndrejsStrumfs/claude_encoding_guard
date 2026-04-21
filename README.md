@@ -61,13 +61,13 @@ After installation, Read any non-UTF-8 file — Chinese characters should displa
 
 ## Known Limitations
 
-- **File stays UTF-8 after Read without Edit.** If you Read a non-UTF-8 file but don't edit it, the file remains UTF-8 on disk until the cache expires (24h). Git will show the encoding change. A subsequent Read in a new session will see it as UTF-8 and leave it alone.
-
 - **Windows-1252 stale cache edge case.** If cache deletion fails (e.g., antivirus lock) and the file's original Windows-1252 bytes happen to be valid UTF-8, the stale cache won't self-heal. This requires two unlikely conditions to coincide and doesn't affect CJK encodings (GBK/Big5/Shift_JIS bytes are not valid UTF-8).
 
 - **Mixed line endings.** Files with both CRLF and LF are normalized to the dominant style.
 
 - **Claude Code assumes absolute paths.** This plugin relies on Claude Code providing absolute file paths in hook stdin JSON, which is the observed behavior. Symbolic links or junctions pointing to the same file may produce different cache keys.
+
+- **Concurrent Claude Code instances on the same file.** If two CC instances edit or read the same file at the same time, one session's Stop restore can overwrite another session's pending Edit. Session-isolated caches prevent most cross-contamination, but a race window remains. Concurrent use is rare enough that this trade-off is accepted in exchange for Read-without-Edit recovery.
 
 ## Advanced Configuration
 

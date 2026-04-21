@@ -24,6 +24,17 @@
           }
         ]
       }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --script \"${CLAUDE_PLUGIN_ROOT}/hooks/encoding_guard.py\" restore-all",
+            "timeout": 30
+          }
+        ]
+      }
     ]
   }
 }
