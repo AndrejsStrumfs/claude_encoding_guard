@@ -50,6 +50,10 @@ PreToolUse (Read)                       PostToolUse (Edit/Write)
 
 安装后，Read 任意非 UTF-8 文件——中文应正确显示而非乱码。
 
+### 实验性：chardet 7.x 分支
+
+迁移到 chardet 7.x 的原型在 [`chardet7-preview`](https://github.com/ymonster/claude_encoding_guard/tree/chardet7-preview) 分支上。它去掉了 `binaryornot` 依赖（chardet 7.x 内置 binary detection），并用上了 0BSD 许可的 chardet（5.x 是 LGPL）。暂不推荐日常使用，详见该分支 README 的状态与安装说明。
+
 ## 设计决策
 
 - **Read 阶段转换**：Claude Code v2.1.90+ 对 hook 修改的文件不重新读取内容。Edit 阶段转换会导致 U+FFFD 覆盖。Read 阶段转换确保 Claude 第一次看到的就是正确 UTF-8。

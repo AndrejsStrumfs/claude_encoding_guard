@@ -50,6 +50,10 @@ Conversion happens at **Read time**, before Claude Code loads the file into memo
 
 After installation, Read any non-UTF-8 file — Chinese characters should display correctly instead of garbled text.
 
+### Experimental: chardet 7.x branch
+
+A migration to chardet 7.x is being prototyped on the [`chardet7-preview`](https://github.com/ymonster/claude_encoding_guard/tree/chardet7-preview) branch. It drops the `binaryornot` dependency (chardet 7.x has built-in binary detection) and uses 0BSD-licensed chardet (vs LGPL on 5.x). Not recommended for daily use yet — see the branch's README for status and install instructions.
+
 ## Design Decisions
 
 - **Read-time conversion**: Claude Code v2.1.90+ silently accepts hook-modified files without re-reading content. Edit-time conversion results in U+FFFD corruption. Converting at Read time ensures Claude's first in-memory view is correct.
