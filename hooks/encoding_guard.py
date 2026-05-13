@@ -42,11 +42,13 @@ RESTORE_ENCODINGS = {
     "euc-kr",
     "windows-1252", "iso-8859-1",
     "windows-1251",
+    "windows-1257",
 }
 
 ENCODING_ALIASES = {
     "gb2312": "gbk",
     "iso-8859-1": "windows-1252",
+    "cp1257": "windows-1257",
 }
 
 # Encodings whose chardet detection (>=0.5 confidence + name-in-RESTORE) is
@@ -54,6 +56,8 @@ ENCODING_ALIASES = {
 # tree false-positives mixed-content files in two patterns:
 #   - short CJK files (<~500B Shift_JIS/EUC-JP/EUC-KR/Big5/GB18030)
 #   - mixed Cyrillic + ASCII files (e.g., source code with CP1251 comments)
+# Windows-1257 (Baltic — Estonian/Latvian/Lithuanian) shares the
+# mixed-single-byte + ASCII pattern with Cyrillic; treated identically.
 # For these encodings chardet's structural validators are strict enough on
 # their own; real binaries cannot reach the confidence threshold.
 STRUCTURAL_TRUSTED = {
@@ -61,6 +65,7 @@ STRUCTURAL_TRUSTED = {
     "big5", "big5hkscs",
     "shiftjis", "eucjp", "euckr", "iso2022jp",
     "windows1251",
+    "windows1257",
 }
 
 
@@ -266,7 +271,73 @@ def extract_file_path(hook_json: dict) -> str | None:
     return ti.get("file_path")
 
 
+def parse_force_overrides() -> dict[str, str]:
+    """Parse ENCODING_GUARD_FORCE env var into {ext_lower: codec_name}.
+
+    Format: '.ext1=codec1,.ext2=codec2'. The dot is required; codec must
+    be a name Python's codec registry resolves. Invalid entries are
+    skipped with a stderr log line.
+
+    Purpose: chardet's auto-detection is unreliable for single-byte
+    European codepages (Windows-1252 / 1257 / ISO-8859-*) on files
+    with sparse high-byte content — a Delphi .pas source with mostly
+    ASCII identifiers and a few Latvian comment characters can be
+    misidentified as cp1252 instead of cp1257, silently corrupting
+    every diacritic on restore. When the user knows the encoding by
+    extension (which is the common case for legacy codebases), this
+    override bypasses detection entirely.
+
+    Example for a Latvian Delphi project:
+        ENCODING_GUARD_FORCE=".pas=cp1257,.dfm=cp1257,.inc=cp1257,.dpr=cp1257"
+    """
+    spec = os.environ.get("ENCODING_GUARD_FORCE", "")
+    if not spec:
+        return {}
+    out: dict[str, str] = {}
+    for pair in spec.split(","):
+        pair = pair.strip()
+        if not pair:
+            continue
+        if "=" not in pair:
+            _log(f"ENCODING_GUARD_FORCE: malformed entry '{pair}' (expected '.ext=codec'), skipping")
+            continue
+        ext, codec = pair.split("=", 1)
+        ext = ext.strip().lower()
+        codec = codec.strip()
+        if not ext.startswith("."):
+            _log(f"ENCODING_GUARD_FORCE: extension '{ext}' must start with '.', skipping")
+            continue
+        if not codec:
+            _log(f"ENCODING_GUARD_FORCE: empty codec for '{ext}', skipping")
+            continue
+        try:
+            "x".encode(codec)
+        except LookupError:
+            _log(f"ENCODING_GUARD_FORCE: unknown codec '{codec}' for '{ext}', skipping")
+            continue
+        # Normalize through ENCODING_ALIASES so the canonical form lands in cache
+        # (e.g. cp1257 -> windows-1257) — keeps the post-restore symmetric.
+        out[ext] = normalize_encoding(codec)
+    return out
+
+
+def get_forced_encoding(path: str, overrides: dict[str, str]) -> str | None:
+    """Return the user-forced encoding for this path's extension, or None."""
+    if not overrides:
+        return None
+    ext = os.path.splitext(path)[1].lower()
+    if not ext:
+        return None
+    return overrides.get(ext)
+
+
+_FORCE_OVERRIDES = parse_force_overrides()
 _RESTORE_SET = {_strip_enc(e) for e in RESTORE_ENCODINGS}
+# Forced codecs are explicit user intent — admit them to the restore allow-list
+# so the cache round-trips. parse_force_overrides() already validated each
+# codec via Python's codec registry.
+for _forced in _FORCE_OVERRIDES.values():
+    _RESTORE_SET.add(_strip_enc(_forced))
 
 
 def handle_pre(hook_json: dict):
@@ -296,23 +367,33 @@ def handle_pre(hook_json: dict):
         delete_cache(session_id, path)
         # Fall through to re-convert
 
-    encoding, confidence = detect_encoding(path)
-    norm = normalize_encoding(encoding)
+    # User-forced encoding by file extension bypasses chardet entirely.
+    # This is the recommended path for legacy codebases where the encoding
+    # is known by extension (e.g., Delphi .pas/.dfm/.inc/.dpr → cp1257) and
+    # chardet would otherwise misidentify sparse-diacritic single-byte files.
+    forced = get_forced_encoding(path, _FORCE_OVERRIDES)
+    if forced:
+        norm = forced
+        confidence = 1.0  # explicit user intent — not a probabilistic detection
+    else:
+        encoding, confidence = detect_encoding(path)
+        norm = normalize_encoding(encoding)
 
     if _strip_enc(norm) not in _RESTORE_SET:
         return
 
-    if confidence < 0.5:
+    if not forced and confidence < 0.5:
         _log(f"skipping {path} — confidence too low ({confidence:.2f}) for {norm}")
         return
 
-    # Trust chardet for STRUCTURAL_TRUSTED encodings (CJK + Cyrillic) where
-    # the confidence + name gate above is already enforced. binaryornot
+    # Trust chardet for STRUCTURAL_TRUSTED encodings (CJK + Cyrillic + Baltic)
+    # where the confidence + name gate above is already enforced. binaryornot
     # false-positives short J/K files and mixed Cyrillic+ASCII files; for
     # these encodings chardet's structural validators are strict enough on
-    # their own. Other single-byte encodings (Windows-1252, ISO-8859-1) still
+    # their own. User-forced extensions are also trusted (explicit user
+    # intent). Other single-byte encodings (Windows-1252, ISO-8859-1) still
     # go through binaryornot since they cannot structurally rule out binary.
-    if _strip_enc(norm) not in STRUCTURAL_TRUSTED:
+    if not forced and _strip_enc(norm) not in STRUCTURAL_TRUSTED:
         try:
             from binaryornot.check import is_binary
             if is_binary(path):

@@ -27,7 +27,7 @@ Conversion happens at **Read time**, before Claude Code loads the file into memo
 
 ## Features
 
-- **Encoding preservation**: GBK, GB2312, GB18030, Big5, Big5-HKSCS, EUC-TW, Shift_JIS, EUC-JP, ISO-2022-JP, EUC-KR, Windows-1252, Windows-1251 (Cyrillic), ISO-8859-1
+- **Encoding preservation**: GBK, GB2312, GB18030, Big5, Big5-HKSCS, EUC-TW, Shift_JIS, EUC-JP, ISO-2022-JP, EUC-KR, Windows-1252, Windows-1251 (Cyrillic), Windows-1257 (Baltic — Estonian / Latvian / Lithuanian), ISO-8859-1
 - **Line ending preservation**: CRLF restored after Claude Code converts to LF
 - **Binary file protection**: Prevents chardet from misidentifying binary files (always on, not configurable)
 - **Session isolation**: Multiple Claude Code sessions won't interfere with each other
@@ -60,7 +60,7 @@ A migration to chardet 7.x is being prototyped on the [`chardet7-preview`](https
 - **`uv run --script`**: Plain `uv run` triggers project sync which closes the stdin pipe on Windows. `--script` skips project discovery.
 - **chardet 5.x**: Version 7.x reduced CJK detection confidence from 0.99 to 0.40 — below the safety threshold. Pinned via PEP 723 in an isolated environment.
 - **Binary detection**: chardet misidentifies some binary files as Windows-1252 (confidence 0.73). [binaryornot](https://github.com/binaryornot/binaryornot) filters these out. Always on, not configurable.
-- **Encoding aliases**: GB2312 → GBK (byte-compatible superset), ISO-8859-1 → Windows-1252 (industry practice).
+- **Encoding aliases**: GB2312 → GBK (byte-compatible superset), ISO-8859-1 → Windows-1252 (industry practice), CP1257 → Windows-1257 (synonym normalization).
 - **Session-isolated cache**: `<tmpdir>/.cc_encoding_cache/<session_id>/` — no cross-session interference. Stale sessions (>24h) auto-cleaned.
 
 ## Known Limitations
@@ -89,7 +89,28 @@ To limit the hook to specific file extensions, use the `if` field in your projec
 
 Without `if`, the hook runs on all file operations. The performance cost is minimal — chardet skips UTF-8/ASCII files almost instantly.
 
-## Technical Details
+### Force encoding by file extension
+
+chardet's auto-detection is unreliable for single-byte European codepages
+(Windows-1252 / 1257 / ISO-8859-*) on files with sparse high-byte content —
+a Delphi `.pas` source with mostly ASCII identifiers and a few Latvian
+diacritics in comments can be misidentified as cp1252 instead of cp1257,
+silently corrupting every diacritic on restore. When the encoding is known
+by extension (the common case for legacy codebases), set
+`ENCODING_GUARD_FORCE` to bypass detection:
+
+```
+ENCODING_GUARD_FORCE=".pas=cp1257,.dfm=cp1257,.inc=cp1257,.dpr=cp1257"
+```
+
+Format: comma-separated `.ext=codec` pairs. The dot is required. The codec
+must be a name Python's `codecs` registry resolves (`cp1257`,
+`windows-1257`, `iso-8859-2`, …). Forced extensions skip the chardet
+confidence gate and the binaryornot binary check — the user has stated the
+encoding explicitly. Invalid entries are skipped with a stderr log line.
+
+Set this in your shell, in `.envrc` (direnv), or in your OS user
+environment so every Claude Code invocation sees it.
 
 See [TECHNICAL.md](TECHNICAL.md) for implementation details including platform quirks (Windows stdin, codepage, CRLF), chardet version sensitivity, binary detection rationale, cache design, and the evolution of the conversion strategy.
 
